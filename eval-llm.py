@@ -8,7 +8,7 @@ import llm
 from datetime import datetime
 import time
 
-SHOW_AVAILABLE_CLUES = False
+SHOW_AVAILABLE_CLUES = True
 PROMPT_TEMPLATE = """
 Solve this nested crossword puzzle. You can only solve clues that are fully revealed (no nested brackets). Answers are usually one word.
 
@@ -214,7 +214,7 @@ class PuzzleEvaluation:
                 correct = False
                 for clue in available:
                     if puzzle['solutions'][clue].lower() == target.lower():
-                        current_state = self.state['current_state'].replace(f"[{clue}]", puzzle['solutions'][clue], 1)
+                        self.state['puzzle_state'] = self.state['puzzle_state'].replace(f"[{clue}]", puzzle['solutions'][clue], 1)
                         correct = True
                         print(f"Found {target}")
                         break
