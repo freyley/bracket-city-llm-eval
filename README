@@ -1,0 +1,5 @@
+To use this project
+0) set up a python virtualenv and install the needed libraries from requirements.txt
+1) set up your LLM keys using the llm project
+2) run ./get-puzzles.sh
+3) run ./eval-llm.py
