@@ -7,6 +7,7 @@ from pathlib import Path
 import llm
 from datetime import datetime
 import time
+from tqdm import tqdm
 
 SHOW_AVAILABLE_CLUES = True
 PROMPT_TEMPLATE = """
@@ -16,13 +17,12 @@ Current Puzzle State:
 {puzzle_state}
 
 {available_clues_section}
-Previous failed attempts:
-{failed_attempts}
 
 Commands:
 - try <answer>    Attempt to solve a clue
 - peek <clue>     Reveal first letter of a clue's answer
 - reveal <clue>   Give up and show answer for a clue
+- see             See the current puzzle state
 
 Peeking and revealing will lose you points but are better than not getting an answer and losing the game. Repeating an answer you've already sent will only lose you points.  
 
@@ -35,6 +35,7 @@ class PuzzleEvaluation:
         self.model_name = model_name or self.select_model()
         self.key = key or self.select_or_create_key()
         self.score_file = Path(f"scores/{self.model_name}.{self.key}.json")
+        self.transcript_file = Path(f"scores/{self.model_name}.{self.key}.transcript")
 
         # Initialize or load state
         if self.score_file.exists():
@@ -109,6 +110,7 @@ class PuzzleEvaluation:
             'peeks': 0,
             'reveals': 0,
             'wrong_guesses': 0,
+            'correct': 0,
             'repeats': 0,
             'puzzles_won': 0,
             'puzzles_attempted': [],
@@ -130,6 +132,10 @@ class PuzzleEvaluation:
         self.score_file.parent.mkdir(exist_ok=True)
         with open(self.score_file, 'w') as f:
             json.dump(self.state, f, indent=2)
+
+    def add_to_trascript(self, addition):
+        with open(self.transcript_file, 'a') as f:
+            f.write(addition +"\n")
 
     def load_random_puzzles(self, file_path='puzzles', count=1):
         try:
@@ -190,21 +196,21 @@ class PuzzleEvaluation:
     def run_single_puzzle(self):
         puzzle = self.state['current_puzzle']
         max_guesses = 150
+        chat = self.llm_model.conversation()
+        available = self.get_available_clues()
+        prompt = self.build_prompt(available)
 
-        for _ in range(max_guesses):
-            if self.check_completion(puzzle):
-                return {'completed': True}
+        for _ in tqdm(range(max_guesses)):
+            response = self.get_llm_response(chat, prompt)
+            self.add_to_trascript(prompt + "\n" + response)
 
-            available = self.get_available_clues()
-            if not available:
-                return {'completed': False}
-
-            prompt = self.build_prompt(available)
-            response = self.get_llm_response(prompt)
-
+            if response == 'see':
+                prompt = f"""The puzzle is now
+{self.state['puzzle_state']}"""
+                continue
             match = re.match(r"(try|peek|reveal)\s+(.+)", response, re.IGNORECASE)
             if not match:
-                print("Invalid command format")
+                prompt = "I didn't understand that. The available commands are `try <answer>`, `peek <clue>` and `reveal <clue>`"
                 continue
 
             cmd, target = match.groups()
@@ -216,12 +222,18 @@ class PuzzleEvaluation:
                     if puzzle['solutions'][clue].lower() == target.lower():
                         self.state['puzzle_state'] = self.state['puzzle_state'].replace(f"[{clue}]", puzzle['solutions'][clue], 1)
                         correct = True
-                        print(f"Found {target}")
+                        self.state['correct'] += 1
+                        prompt = f"""{target} was correct! The new puzzle state is 
+{self.state['puzzle_state']}
+You can now `try`, `peek`, `reveal` the next step or `see` to see the puzzle."""
+                        available = self.get_available_clues()
                         break
                 if not correct:
                     if target in self.state['failed_attempts']:
+                        prompt = f"You already tried {target} and it was wrong then."
                         self.state['repeats'] += 1
                     else:
+                        prompt = f"{target} is either not a correct solution or is a solution to a clue that's not currently available."
                         self.state["wrong_guesses"] += 1
                         self.state['failed_attempts'].append(target)
 
@@ -230,23 +242,34 @@ class PuzzleEvaluation:
                     self.state["peeks"] += 1
                     # TODO: actually tell the LLM about peeked letters
                     first_letter = puzzle['solutions'][target][0]
-                    print(f"Peek result: {first_letter}")
+                    prompt = f"For {target}, the first letter is {first_letter}."
                 else:
-                    print("Invalid clue for peeking")
+                    prompt = f"I can't peek at {target} because it's not an available clue."
 
             elif cmd == "reveal":
-                if target in available:
+                if "[" in target:
+                    prompt = f"I cannot reveal {target} because it contains multiple clues. Remember that the brackets signify the place where a clue is, and only the clue within the inner brackets can be tried or revealed."
+                elif target in available:
                     self.state["reveals"] += 1
-                    puzzle['current_state'] = puzzle['current_state'].replace(
+                    self.state['puzzle_state'] = self.state['puzzle_state'].replace(
                         f"[{target}]", puzzle['solutions'][target], 1
                     )
+                    available = self.get_available_clues()
+                    prompt = f"""The solution to {target} is {puzzle['solutions'][target]}.
+The new puzzle state is {self.state["puzzle_state"]}
+You can now `try`, `peek`, `reveal` the next step or `see` to see the puzzle.
+                    """
                 else:
-                    print("Invalid clue for reveal")
-
+                    prompt = f"I cannot reveal {target} because it's not currently an available clue."
             else:
-                print("Unknown command")
+                prompt = f"I don't know how you got here, but {cmd} is an invalid command."
 
             self.save_state()
+
+
+
+            if self.check_completion(puzzle):
+                return {'completed': True}
 
         return {'completed': False}
 
@@ -257,15 +280,13 @@ class PuzzleEvaluation:
         return PROMPT_TEMPLATE.format(
             puzzle_state=self.state['puzzle_state'],
             available_clues_section=available_section,
-            failed_attempts=self.state['failed_attempts']
         )
 
-    def get_llm_response(self, prompt):
+    def get_llm_response(self, conversation, prompt):
         consecutive_failures = 0
         while True:
             try:
-                response = self.llm_model.prompt(prompt).text().strip()
-                print(f"LLM Response: {response}")
+                response = conversation.prompt(prompt).text().strip()
                 return response
             except llm.errors.ModelError as e:
                 if consecutive_failures >= 5:
