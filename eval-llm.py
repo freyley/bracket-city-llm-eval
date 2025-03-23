@@ -316,16 +316,18 @@ def load_random_puzzle_excluding(dates, file_path='puzzles', count=1):
     except json.JSONDecodeError:
         print(f"Error: Invalid JSON in {file_path}")
         exit(1)
+    except KeyError as e:
+        print(f"Error: Malformed puzzle data - missing 'puzzleDate' field")
+        exit(1)
     except ValueError as e:
         print(e)
         exit(1)
 
-
 if __name__ == "__main__":
     model = select_model()
-    key = select_or_create_key(model)
-    puzzle = load_random_puzzles()
-    evaluation = PuzzleEvaluation(model, key, puzzle)
-    evaluation.run()
-    print("\nFinal Score:")
-    print(json.dumps(evaluation.state, indent=2))
+    key, dates = select_or_create_key(model)
+    puzzles = load_random_puzzle_excluding(dates, count=10)
+    for puzzle in puzzles:
+        evaluation = PuzzleEvaluation(model, key, puzzle)
+        evaluation.run()
+
