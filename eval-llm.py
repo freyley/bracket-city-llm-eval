@@ -153,7 +153,7 @@ You can now `try`, `peek`, `reveal` the next step or `see` to see the puzzle."""
             elif cmd == "reveal":
                 if "[" in target:
                     prompt = f"I cannot reveal {target} because it contains multiple clues. Remember that the brackets signify the place where a clue is, and only the clue within the inner brackets can be tried or revealed."
-                    self.state['failed_reveals'] += target
+                    self.state['failed_reveals'].append(target)
                 elif target in available:
                     if target in self.state['reveals']:
                         prompt = "You've already asked to reveal this clue."
