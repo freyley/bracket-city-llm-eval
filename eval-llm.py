@@ -41,10 +41,11 @@ class PuzzleEvaluation:
         self.key = key
         self.initialize_new_state()
         self.state['current_puzzle'] = puzzle[0]
+        puzzleDate = puzzle[0]['puzzleDate']
         self.state['puzzle_state'] = self.state['current_puzzle']['initialPuzzle']
 
-        self.score_file = Path(f"scores/{self.model_name}.{self.key}.json")
-        self.transcript_file = Path(f"scores/{self.model_name}.{self.key}.transcript")
+        self.score_file = Path(f"scores/{self.model_name}.{self.key}/{puzzleDate}.json")
+        self.transcript_file = Path(f"scores/{self.model_name}.{self.key}/{puzzleDate}.transcript")
 
         self.llm_model = llm.get_model(self.model_name)
 
@@ -233,20 +234,35 @@ def select_model():
 
 
 def select_or_create_key(model):
-    """Manage score file selection/creation for a model"""
+    """Manage score file selection/creation for a model. Returns (key, dates_list) tuple."""
     scores_dir = Path("scores")
     scores_dir.mkdir(exist_ok=True)
 
-    # Find existing keys
-    pattern = f"{model}.*.json"
-    existing_files = list(scores_dir.glob(pattern))
-    existing_keys = [f.stem.split('.')[-1] for f in existing_files]
+    existing_keys = []
+    key_dates = {}  # Maps keys to their sorted list of dates
 
-    # Show existing options
+    # Find existing directories matching model.key pattern
+    for dir_path in scores_dir.glob(f"{model}.*"):
+        if dir_path.is_dir():
+            parts = dir_path.name.rsplit('.', 1)
+            if len(parts) == 2 and parts[0] == model:
+                key = parts[1]
+                existing_keys.append(key)
+                # Collect dates from files in the directory
+                dates = set()
+                for file_path in dir_path.iterdir():
+                    if file_path.is_file() and file_path.suffix in ('.json', '.transcript'):
+                        dates.add(file_path.stem)
+                key_dates[key] = sorted(dates)
+
+    # Show existing options with date counts
     if existing_keys:
         print(f"Existing score files for {model}:")
         for i, key in enumerate(existing_keys, 1):
-            print(f"{i}. {key}")
+            dates = key_dates.get(key, [])
+            count = len(dates)
+            dates_info = f"{count} dates" if count != 0 else "No dates"
+            print(f"{i}. {key} ({dates_info})")
         print("n. Create new score file")
     else:
         print(f"No existing score files for {model}")
@@ -260,17 +276,25 @@ def select_or_create_key(model):
             while True:
                 new_key = ''.join(random.choices(string.ascii_lowercase + string.digits, k=6))
                 if new_key not in existing_keys:
-                    print(f"Okay, new key is {new_key}")
-                    return new_key
+                    new_dir = scores_dir / f"{model}.{new_key}"
+                    try:
+                        new_dir.mkdir(exist_ok=False)
+                        print(f"Okay, new key is {new_key}")
+                        return new_key, []
+                    except FileExistsError:
+                        # Race condition, retry
+                        continue
         elif choice.isdigit():
             idx = int(choice) - 1
             if 0 <= idx < len(existing_keys):
-                return existing_keys[idx]
+                selected_key = existing_keys[idx]
+                return selected_key, key_dates.get(selected_key, [])
             print("Invalid selection")
         else:
             print("Please enter a valid choice")
 
-def load_random_puzzles(file_path='puzzles', count=1):
+
+def load_random_puzzle_excluding(dates, file_path='puzzles', count=1):
     try:
         with open(file_path) as f:
             all_puzzles = json.load(f)
