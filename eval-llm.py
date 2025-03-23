@@ -303,9 +303,12 @@ def load_random_puzzle_excluding(dates, file_path='puzzles', count=1):
             if isinstance(all_puzzles, dict) and 'puzzles' in all_puzzles:
                 all_puzzles = all_puzzles['puzzles']
 
-            if len(all_puzzles) < count:
-                raise ValueError(f"Only {len(all_puzzles)} puzzles found, need at least {count}")
-            return random.sample(all_puzzles, count)
+            # Filter out puzzles with dates that are already present
+            filtered_puzzles = [puzzle for puzzle in all_puzzles if puzzle['puzzleDate'] not in dates]
+
+            if len(filtered_puzzles) < count:
+                raise ValueError(f"Only {len(filtered_puzzles)} eligible puzzles found (after exclusion), need at least {count}")
+            return random.sample(filtered_puzzles, count)
 
     except FileNotFoundError:
         print(f"Error: {file_path} not found")
