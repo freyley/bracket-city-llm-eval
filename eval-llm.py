@@ -5,11 +5,10 @@ import random
 import string
 from pathlib import Path
 import llm
-from datetime import datetime
 import time
 from tqdm import tqdm
 
-SHOW_AVAILABLE_CLUES = True
+SHOW_AVAILABLE_CLUES = False
 PROMPT_TEMPLATE = """
 Solve this nested crossword puzzle. You can only solve clues that are fully revealed (no nested brackets). Answers are usually one word.
 
@@ -40,8 +39,8 @@ class PuzzleEvaluation:
         self.model_name = model_name
         self.key = key
         self.initialize_new_state()
-        self.state['current_puzzle'] = puzzle[0]
-        puzzleDate = puzzle[0]['puzzleDate']
+        self.state['current_puzzle'] = puzzle
+        puzzleDate = puzzle['puzzleDate']
         self.state['puzzle_state'] = self.state['current_puzzle']['initialPuzzle']
 
         self.score_file = Path(f"scores/{self.model_name}.{self.key}/{puzzleDate}.json")
@@ -69,6 +68,8 @@ class PuzzleEvaluation:
             'current_puzzle': None,
             'puzzle_state': None,
             'failed_attempts': [],
+            'input_tokens': 0,
+            'output_tokens': 0,
         }
 
     def save_state(self):
@@ -196,8 +197,12 @@ You can now `try`, `peek`, `reveal` the next step or `see` to see the puzzle.
         consecutive_failures = 0
         while True:
             try:
-                response = conversation.prompt(prompt).text().strip()
-                return response
+                response = conversation.prompt(prompt)
+                text = response.text().strip()
+                usage = response.usage()
+                self.state['input_tokens'] += usage.input
+                self.state['output_tokens'] += usage.output
+                return text
             except llm.errors.ModelError as e:
                 if consecutive_failures >= 5:
                     print("5 failures")
