@@ -16,20 +16,18 @@ def calculate_score(data: Dict) -> int:
     # Deduct for peeks
     unique_peeks = len(data["peeks"])
     repeat_peeks = data["repeat_peeks"]
-    score -= unique_peeks * 4 + repeat_peeks * 8
+    peek_cost = unique_peeks * 4 + repeat_peeks * 8
+    score -= peek_cost
     
     # Deduct for reveals
     unique_reveals = len(data["reveals"])
     repeat_reveals = data["repeat_reveals"]
-    score -= unique_reveals * 15 + repeat_reveals * 45
-    
-    # Deduct for failed reveals
-    failed_reveals = len(data["failed_reveals"])
-    score -= failed_reveals * 45
-    
+    reveal_cost = unique_reveals * 15 + repeat_reveals * 45
+    score -= reveal_cost
+
     # Deduct for incomplete puzzle
     if not data["completed"]:
-        score -= 100
+        score -= 500
     
     return score
 
